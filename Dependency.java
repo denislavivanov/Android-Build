@@ -10,19 +10,18 @@ public class Dependency {
     private String type;
 
     public Dependency(Node group, Node artifact, 
-                      Node version, Node type, Node scope) {
+                      Node version, Node type, Node scope) throws Exception {
         this.group    = group.getTextContent();
         this.artifact = artifact.getTextContent();
         this.version  = version.getTextContent();
-        this.scope    = scope.getTextContent();
+        this.scope    = scope == null ? "compile" : scope.getTextContent();
+        this.type     = type  == null ? "jar" : type.getTextContent();
 
         if (this.version.charAt(0) == '[')
             this.version = this.version.substring(1, this.version.length()-1);
 
-        if (type == null)
-            this.type = "jar";
-        else
-            this.type = type.getTextContent();
+        if (this.version.contains("$"))
+            throw new Exception("Mvn variables NOT supported!");
     }
 
     @Override
