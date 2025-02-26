@@ -1,18 +1,25 @@
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
-import org.w3c.dom.Node;
-import java.util.HashMap;
+
 import java.net.URL;
+import java.util.HashMap;
 import java.io.InputStream;
+import java.io.FileNotFoundException;
+
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 
 public class PomParser {
 
-    private final String mvn = "https://maven.google.com/";
+    private final static String repos[] = {
+        "https://maven.google.com/",
+        "https://repo1.maven.org/maven2/"
+    };
+
     private static PomParser instance;
-    private DocumentBuilder builder;
+    private DocumentBuilder  builder;
     private HashMap<String, Dependency> dependencies;
 
     private PomParser() {
@@ -33,76 +40,80 @@ public class PomParser {
         return instance;
     }
 
-    private String getURL(String dependency, String ext) {
+    private String buildURL(String dependency, String repo) {
         String[] urlParts = dependency.split(":");
-        String url = mvn;
+        StringBuilder sb  = new StringBuilder(repo);
 
-        for (int i = 0; i < urlParts.length; ++i) {
-            if (i < urlParts.length - 1) {
-                String[] dotted = urlParts[i].split("\\.");
+        for (int i = 0; i < urlParts.length-1; ++i) {
+            String[] dotted = urlParts[i].split("\\.");
 
-                if (dotted.length != 0) {
-                    for (int j = 0; j < dotted.length; ++j) {
-                        url += dotted[j] + "/";
-                    }
-                }
-                else {
-                    url += urlParts[i] + "/";
+            if (dotted.length != 0) {
+                for (int j = 0; j < dotted.length; ++j) {
+                    sb.append(dotted[j]);
+                    sb.append("/");
                 }
             }
             else {
-                url += urlParts[i] + "/";
+                sb.append(urlParts[i]);
+                sb.append("/");
             }
         }
 
-        return String.format("%s%s-%s.%s", url, urlParts[urlParts.length-2], 
-                            urlParts[urlParts.length-1], ext);
+        sb.append(urlParts[urlParts.length-1]);
+        sb.append("/");
+        sb.append(urlParts[urlParts.length-2]);
+        sb.append("-");
+        sb.append(urlParts[urlParts.length-1]);
+        sb.append(".pom");
+
+        return sb.toString();
     }
 
     public void getDependencies(String name) throws Exception {
-        NodeList  root;
-        NodeList  tags;
-        Document   dom;
-        InputStream in;
+        Element      tag;
+        Document     dom;
+        NodeList    tags;
+        Dependency  curr;
+        Dependency match;
+        InputStream in = null;
 
-        in   = new URL(getURL(name, "pom")).openStream();
-        dom  = builder.parse(in);
-        root = dom.getElementsByTagName("dependencies");
+        /* Loop through all repositories to find the package */
+        for (String repo : repos) {
+            try {
+                in = new URL(buildURL(name, repo)).openStream();
+                break;
+            }
+            catch (FileNotFoundException e) {
+            }
+        }
 
-        if (root.getLength() == 0)
+        if (in == null)
             return;
 
-        tags = root.item(root.getLength() - 1).getChildNodes();
+        dom  = builder.parse(in);
+        tags = dom.getElementsByTagName("dependency");
 
-        for (int i = 1; i < tags.getLength(); i += 2) {
-            Node          tag = tags.item(i);
-            NodeList children = tag.getChildNodes();
-
-            Dependency d = new Dependency(
-                children.item(1).getTextContent(),
-                children.item(3).getTextContent(),
-                children.item(5).getTextContent(),
-                children.item(9) == null
+        for (int i = 0; i < tags.getLength(); ++i) {            
+            tag  = (Element)tags.item(i);
+            curr = new Dependency(
+                tag.getElementsByTagName("groupId").item(0),
+                tag.getElementsByTagName("artifactId").item(0),
+                tag.getElementsByTagName("version").item(0),
+                tag.getElementsByTagName("type").item(0),
+                tag.getElementsByTagName("scope").item(0)
             );
-    
-            if (!d.toString().contains("android"))
+
+            if (curr.getScope().equals("test"))
                 continue;
-            
-            Dependency match = dependencies.get(d.getPackage());
+
+            match = dependencies.get(curr.getPackage());
             
             if (match == null) {
-                dependencies.put(d.getPackage(), d);
+                dependencies.put(curr.getPackage(), curr);
+                
+                System.out.println(curr.toString());
+                getDependencies(curr.toString());
             }
-            else {
-                if (match.getVersion() < d.getVersion()) {
-                    match.setVersion(d.getVersionStr());
-                }
-
-                continue;
-            }
-            
-            System.out.println(d.toString());
-            getDependencies(d.toString());
         }
     }
 }
