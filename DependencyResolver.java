@@ -1,5 +1,6 @@
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import java.net.URL;
@@ -7,13 +8,18 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+
 import java.util.HashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+import java.io.File;
 import java.io.InputStream;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-
 
 public class DependencyResolver {
 
@@ -25,7 +31,7 @@ public class DependencyResolver {
     private static DependencyResolver instance;
     private String downloadDir;
     private DocumentBuilder  builder;
-    private HashMap<String, Dependency> dependencies;
+    public HashMap<String, Dependency> dependencies;
 
     private DependencyResolver() {
         Path downloadPath;
@@ -80,18 +86,23 @@ public class DependencyResolver {
                             urlParts[urlParts.length-1], fileType);
     }
 
-    public void getDependencies(String name) throws Exception {
+    public void getDependencies(Dependency dependency) throws Exception {
+        Node        type;
         Element      tag;
         Document     dom;
         NodeList    tags;
         Dependency  curr;
-        Dependency match;
         InputStream in = null;
 
+        if (dependencies.containsKey(dependency.getName()))
+            return;
+
         /* Loop through all repositories to find the package */
-        for (String repo : repos) {
+        for (int i = 0; i < repos.length; ++i) {
             try {
-                in = new URL(buildURL(name, repo, "pom")).openStream();
+                in = new URL(buildURL(dependency.toString(), repos[i], 
+                    "pom")).openStream();
+                dependency.repoIndex = i;
                 break;
             }
             catch (FileNotFoundException e) {
@@ -103,6 +114,10 @@ public class DependencyResolver {
 
         dom  = builder.parse(in);
         tags = dom.getElementsByTagName("dependency");
+        type = dom.getElementsByTagName("packaging").item(0);
+
+        dependencies.put(dependency.getName(), dependency);
+        dependency.type = type == null ? "jar" : type.getTextContent();
 
         for (int i = 0; i < tags.getLength(); ++i) {
             tag  = (Element)tags.item(i);
@@ -110,44 +125,53 @@ public class DependencyResolver {
                 tag.getElementsByTagName("groupId").item(0),
                 tag.getElementsByTagName("artifactId").item(0),
                 tag.getElementsByTagName("version").item(0),
-                tag.getElementsByTagName("type").item(0),
                 tag.getElementsByTagName("scope").item(0)
             );
 
             if (curr.getScope().equals("test"))
                 continue;
 
-            match = dependencies.get(curr.getPackage());
-            
-            if (match == null) {
-                dependencies.put(curr.getPackage(), curr);
-                getDependencies(curr.toString());
-            }
+            getDependencies(curr);
         }
     }
 
     public void downloadDependencies() throws Exception {
-        InputStream   in = null;
+        InputStream   in;
         StringBuilder sb;
+        Path dependencyPath;
 
         for (Dependency dependency : dependencies.values()) {
-            for (String repo : repos) {
-                try {
-                    in = new URL(buildURL(dependency.toString(), repo, 
-                                dependency.getType())).openStream();
-
-                    break;
-                }
-                catch (FileNotFoundException e) {
-                }
-            }
-
+            in = new URL(buildURL(dependency.toString(), repos[dependency.repoIndex], 
+                        dependency.type)).openStream();
             sb = new StringBuilder(downloadDir);
             sb.append(dependency.toString());
             sb.append(".");
-            sb.append(dependency.getType());
+            sb.append(dependency.type);
 
-            Files.copy(in, Paths.get(sb.toString()), StandardCopyOption.REPLACE_EXISTING);
+            dependencyPath = Paths.get(sb.toString());
+
+            Files.copy(in, dependencyPath, 
+                StandardCopyOption.REPLACE_EXISTING);
+
+            if (dependency.type.equals("aar")) {
+                unzipFile(dependencyPath.toFile(), downloadDir + dependency.toString() + "/");
+                Files.delete(dependencyPath);
+            }
+        }
+    }
+
+    public void unzipFile(File path, String dir) throws Exception {
+        ZipInputStream in = new ZipInputStream(new FileInputStream(path));
+        ZipEntry entry;
+        File  destFile;
+
+        while ((entry = in.getNextEntry()) != null) {
+            destFile = new File(dir, entry.getName());
+            destFile.getParentFile().mkdirs();
+
+            if (!entry.isDirectory()) {
+                Files.copy(in, destFile.toPath());
+            }
         }
     }
 }

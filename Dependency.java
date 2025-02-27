@@ -7,15 +7,16 @@ public class Dependency {
     private String artifact;
     private String version;
     private String scope;
-    private String type;
+    public  String type;
+    public  int    repoIndex;
 
     public Dependency(Node group, Node artifact, 
-                      Node version, Node type, Node scope) throws Exception {
-        this.group    = group.getTextContent();
-        this.artifact = artifact.getTextContent();
-        this.version  = version.getTextContent();
-        this.scope    = scope == null ? "compile" : scope.getTextContent();
-        this.type     = type  == null ? "jar" : type.getTextContent();
+                      Node version, Node scope) throws Exception {
+        this.group     = group.getTextContent();
+        this.artifact  = artifact.getTextContent();
+        this.version   = version.getTextContent();
+        this.scope     = scope == null ? "compile" : scope.getTextContent();
+        this.repoIndex = 0;
 
         if (this.version.charAt(0) == '[')
             this.version = this.version.substring(1, this.version.length()-1);
@@ -24,28 +25,28 @@ public class Dependency {
             throw new Exception("Mvn variables NOT supported!");
     }
 
+    public Dependency(String name) {
+        String[] parts = name.split(":");
+
+        this.group    = parts[0];
+        this.artifact = parts[1];
+        this.version  = parts[2];
+    }
+
     @Override
     public String toString() {
         return group + ":" + artifact + ":" + version;
-    }
-
-    public String getType() {
-        return type;
     }
 
     public String getScope() {
         return scope;
     }
 
-    public String getPackage() {
+    public String getName() {
         return group + ":" + artifact;
     }
 
     public String getVersion() {
         return version;
-    }
-
-    public void setVersion(String version) {
-        this.version = version;
     }
 }
